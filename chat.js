@@ -105,27 +105,46 @@ function removeTyping() {
   if (el) el.remove();
 }
 
-/* ===== Claude API にメッセージを送信 ===== */
+/* ===== Claude API にメッセージを送信（Vercel プロキシ経由） ===== */
 async function sendToAPI(userText) {
   /* 会話履歴にユーザーメッセージを追加 */
   history.push({ role: 'user', content: userText });
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-      /* ブラウザからの直接リクエストを許可するヘッダー */
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 512,
-      system: SYSTEM_PROMPT,
-      messages: history,
-    }),
-  });
+  /* 本番: /api/chat（Vercel Serverless Function）を経由してAPIキーを秘匿
+   * ローカル: config.js の ANTHROPIC_API_KEY を直接使う        */
+  const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'file:';
+
+  let response;
+  if (isLocal && typeof ANTHROPIC_API_KEY !== 'undefined' && ANTHROPIC_API_KEY !== 'YOUR_API_KEY_HERE') {
+    /* ローカル開発: Anthropic API に直接リクエスト */
+    response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 512,
+        system: SYSTEM_PROMPT,
+        messages: history,
+      }),
+    });
+  } else {
+    /* 本番（Vercel）: サーバーサイドプロキシ経由 */
+    response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 512,
+        system: SYSTEM_PROMPT,
+        messages: history,
+      }),
+    });
+  }
 
   if (!response.ok) {
     throw new Error(`API エラー: ${response.status}`);
